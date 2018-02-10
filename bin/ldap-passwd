@@ -1,0 +1,54 @@
+#!/bin/bash
+
+cmd=$(basename $0)
+
+usage_exit() {
+    echo "Usage: ${cmd} [user]" 1>&2
+    exit 1
+}
+
+permission_err_exit() {
+    echo "${cmd}: You may not view or modify password information for ${uid}."
+    exit 1
+}
+
+get_options() {
+    while getopts h OPT
+    do
+        case $OPT in
+            h)  usage_exit
+                ;;
+            \?) usage_exit
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    uid=$1
+    [ -z "$uid" ] && uid=$(whoami)
+}
+
+check_permission() {
+    user=$(whoami)
+    [ "$user" = "root" ] && return 0
+    [ "$user" = "$uid" ] && return 0
+    permission_err_exit
+}
+
+mod_password() {
+    echo "Changing password for ${uid}."
+
+    if [ "$(whoami)" = "root" ]
+    then
+        ldappasswd -x -D "cn=admin,$(slapd-basedn)" -S -w ${SLAPD_PASSWORD} "uid=${uid},ou=Users,$(slapd-basedn)"
+    else
+        read -sp '(current) LDAP password: ' password
+        tty -s && echo
+        ldappasswd -x -D "uid=${uid},ou=Users,$(slapd-basedn)" -S -w ${password}
+    fi
+}
+
+get_options "$@"
+check_permission
+mod_password
+exit 0

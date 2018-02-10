@@ -1,0 +1,37 @@
+#!/bin/bash
+
+cmd=$(basename $0)
+
+usage_exit() {
+    echo "Usage: ${cmd} [group]" 1>&2
+    exit 1
+}
+
+get_options() {
+    while getopts h OPT
+    do
+        case $OPT in
+            h)  usage_exit
+                ;;
+            \?) usage_exit
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    cn=$1
+    [ -z "$cn" ] && cn=*
+}
+
+show_groups() {
+    local uri=ldap:///
+    local base=$(slapd-basedn)
+    local binddn=cn=admin,${base}
+    local bindpw=${SLAPD_PASSWORD}
+
+    ldapsearch -LLL -H ${uri} -w ${bindpw} -D ${binddn} -b ${base} "(& (objectClass=posixGroup) (cn=${cn}))"
+}
+
+get_options "$@"
+show_groups
+exit 0

@@ -1,0 +1,7 @@
+dn: ${SLAPD_DB_CONF},cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: to attrs=userPassword,shadowLastChange by self write by anonymous auth by * none
+olcAccess: to attrs=sshPublicKey by self write by * none
+olcAccess: to dn.base="" by * read
+olcAccess: to * by * read

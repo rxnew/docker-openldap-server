@@ -1,0 +1,51 @@
+#!/bin/bash
+
+cmd=$(basename $0)
+
+usage_exit() {
+    echo "Usage: ${cmd} user" 1>&2
+    exit 1
+}
+
+get_options() {
+    while getopts h OPT
+    do
+        case $OPT in
+            h)  usage_exit
+                ;;
+            \?) usage_exit
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    uid=$1
+    [ -z "$uid" ] && usage_exit
+}
+
+del_user() {
+    basedn=$(slapd-basedn)
+    ldapdelete -x -D cn=admin,$(slapd-basedn) -w ${SLAPD_PASSWORD} "uid=${uid},ou=Users,${basedn}"
+}
+
+get_groups() {
+    local uri=ldap:///
+    local base=$(slapd-basedn)
+    local binddn=cn=admin,${base}
+    local bindpw=${SLAPD_PASSWORD}
+
+    ldapsearch -LLL -H ${uri} -w ${bindpw} -D ${binddn} -b ${base} "(& (objectClass=posixGroup) (memberUid=${uid}))" cn | grep ^cn | cut -d ' ' -f 2
+}
+
+del_groups() {
+    local groups_arr=$@
+    for group in $groups_arr
+    do
+        ldap-gpasswd -r ${uid} ${group}
+    done
+}
+
+get_options "$@"
+del_user
+del_groups $(get_groups)
+exit 0

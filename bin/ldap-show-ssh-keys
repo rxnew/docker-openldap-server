@@ -1,0 +1,52 @@
+#!/bin/bash
+
+cmd=$(basename $0)
+
+usage_exit() {
+    echo "Usage: ${cmd} [user]" 1>&2
+    exit 1
+}
+
+permission_err_exit() {
+    echo "${cmd}: You may not view ssh-public-key information for ${uid}."
+    exit 1
+}
+
+get_options() {
+    uid=''
+
+    while getopts h OPT
+    do
+        case $OPT in
+            h)  usage_exit
+                ;;
+            \?) usage_exit
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    uid=$1
+    [ -z "$uid" ] && uid=$(whoami)
+}
+
+check_permission() {
+    user=$(whoami)
+    [ "$user" = "root" ] && return 0
+    [ "$user" = "$uid" ] && return 0
+    permission_err_exit
+}
+
+get_ssh_keys() {
+    local uri=ldap:///
+    local base=$(slapd-basedn)
+    local binddn=cn=admin,${base}
+    local bindpw=${SLAPD_PASSWORD}
+
+    ldapsearch -LLL -H ${uri} -w "${bindpw}" -D "${binddn}" -b "${base}" "(& (objectClass=posixAccount) (uid=${uid}))" "sshPublicKey" | sed -ne '2,$p' | sed -e 's/sshPublicKey: \?/#/g' | sed -e 's/^\s//g' | tr -d '\n' | sed -e 's/#/\n/g' | grep -v -e '^\s*$'
+}
+
+get_options "$@"
+check_permission
+get_ssh_keys
+exit 0

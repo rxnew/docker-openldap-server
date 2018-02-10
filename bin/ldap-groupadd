@@ -1,0 +1,71 @@
+#!/bin/bash
+
+cmd=$(basename $0)
+
+gid_number_begin=5000
+
+group_ldif_tmpl=$(cat << 'EOF'
+dn: cn=${cn},ou=Groups,${basedn}
+objectClass: posixGroup
+cn: ${cn}
+gidNumber: ${gid_number}
+EOF
+)
+
+usage_exit() {
+    echo "Usage: ${cmd} [-g gid] group" 1>&2
+    exit 1
+}
+
+get_options() {
+    gid_number=''
+
+    while getopts g:h OPT
+    do
+        case $OPT in
+            g)  gid_number=$OPTARG
+                ;;
+            h)  usage_exit
+                ;;
+            \?) usage_exit
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    cn=$1
+    [ -z "$cn" ] && usage_exit
+}
+
+get_gid_number() {
+    local uri=ldap:///
+    local base=$(slapd-basedn)
+    local binddn=cn=admin,${base}
+    local bindpw=${SLAPD_PASSWORD}
+
+    local res=$(ldapsearch -LLL -H ${uri} -w ${bindpw} -D ${binddn} -b ${base} "(& (objectClass=posixGroup))" gidNumber | grep ^gidNumber | cut -d ' ' -f 2 | sort -n | uniq | awk "{ if (\$0 >= ${gid_number_begin}) print \$0 }")
+
+    local gid_number_iter=$gid_number_begin
+
+    for gid_number in $res
+    do
+        [ $gid_number -ne $gid_number_iter ] && echo $gid_number_iter && return
+        gid_number_iter=$(expr $gid_number_iter + 1)
+    done
+
+    echo $gid_number_iter
+}
+
+add_group() {
+    [ -z "$gid_number" ] && gid_number=$(get_gid_number)
+
+    export cn
+    export gid_number
+    export basedn=$(slapd-basedn)
+
+    echo "$group_ldif_tmpl" | envsubst | ldapadd -x -D cn=admin,$(slapd-basedn) -w ${SLAPD_PASSWORD}
+}
+
+get_options "$@"
+add_group
+exit 0

@@ -1,0 +1,33 @@
+#!/bin/bash
+
+cmd=$(basename $0)
+
+usage_exit() {
+    echo "Usage: ${cmd} group" 1>&2
+    exit 1
+}
+
+get_options() {
+    while getopts h OPT
+    do
+        case $OPT in
+            h)  usage_exit
+                ;;
+            \?) usage_exit
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    cn=$1
+    [ -z "$cn" ] && usage_exit
+}
+
+del_group() {
+    basedn=$(slapd-basedn)
+    ldapdelete -x -D cn=admin,$(slapd-basedn) -w ${SLAPD_PASSWORD} "cn=${cn},ou=Groups,${basedn}"
+}
+
+get_options "$@"
+del_group
+exit 0

@@ -1,0 +1,107 @@
+#!/bin/bash
+
+cmd=$(basename $0)
+
+uid_number_begin=2000
+
+user_ldif_tmpl=$(cat << 'EOF'
+dn: uid=${uid},ou=Users,${basedn}
+objectclass: posixAccount
+objectclass: inetOrgPerson
+objectClass: ldapPublicKey
+cn: ${cn}
+sn: ${sn}
+displayName: ${display_name}
+uid: ${uid}
+uidNumber: ${uid_number}
+gidNumber: ${gid_number}
+homeDirectory: ${home_directory}
+loginShell: /bin/bash
+userPassword: ${user_password}
+mail: ${mail}
+sshPublicKey: ${sshpublickey}
+EOF
+)
+
+usage_exit() {
+    echo "Usage: ${cmd} [-n full_name] [-p password] [-G group1,...] user" 1>&2
+    exit 1
+}
+
+get_options() {
+    display_name=''
+    user_password=''
+    groups=''
+
+    while getopts n:p:G:h OPT
+    do
+        case $OPT in
+            n)  display_name=$OPTARG
+                ;;
+            p)  user_password=$(slappasswd -c crypt -s ${OPTARG})
+                ;;
+            G)  groups=$OPTARG
+                ;;
+            h)  usage_exit
+                ;;
+            \?) usage_exit
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    uid=$1
+    [ -z "$uid" ] && usage_exit
+}
+
+get_uid_number() {
+    local uri=ldap:///
+    local base=$(slapd-basedn)
+    local binddn=cn=admin,${base}
+    local bindpw=${SLAPD_PASSWORD}
+
+    local res=$(ldapsearch -LLL -H ${uri} -w ${bindpw} -D ${binddn} -b ${base} "(& (objectClass=posixAccount))" uidNumber | grep ^uidNumber | cut -d ' ' -f 2 | sort -n | uniq | awk "{ if (\$0 >= ${uid_number_begin}) print \$0 }")
+
+    local uid_number_iter=$uid_number_begin
+
+    for uid_number in $res
+    do
+        [ $uid_number -ne $uid_number_iter ] && echo $uid_number_iter && return
+        uid_number_iter=$(expr $uid_number_iter + 1)
+    done
+
+    echo $uid_number_iter
+}
+
+add_user() {
+    [ -z "$display_name" ] && display_name=$uid
+    [ -z "$user_password" ] && user_password=$(slappasswd -c crypt -g)
+
+    export uid
+    export display_name
+    export user_password
+    export basedn=$(slapd-basedn)
+    export uid_number=$(get_uid_number)
+    export gid_number=$uid_number
+    export cn=$(echo $display_name | cut -d ' ' -f 1)
+    export sn=$(echo $display_name | cut -d ' ' -f 2)
+    export home_directory=/home/${uid}
+    export mail=${uid}@${SLAPD_DOMAIN}
+    export sshpublickey=''
+
+    echo "$user_ldif_tmpl" | envsubst | ldapadd -x -D cn=admin,$(slapd-basedn) -w ${SLAPD_PASSWORD}
+    ldap-groupadd -g ${gid_number} ${uid}
+}
+
+add_groups() {
+    local groups_arr="$(echo $groups | tr -s ',' ' ')"
+    for group in $groups_arr
+    do
+        ldap-gpasswd -a ${uid} ${group}
+    done
+}
+
+get_options "$@"
+add_user
+add_groups
+exit 0

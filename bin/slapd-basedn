@@ -1,0 +1,3 @@
+#!/bin/sh
+
+echo dc=$(echo $SLAPD_DOMAIN | sed -e 's/\./,dc=/g')

@@ -1,0 +1,60 @@
+#!/bin/bash
+
+cmd=$(basename $0)
+
+group_mod_ldif_tmpl=$(cat << 'EOF'
+dn: cn=${cn},ou=Groups,${basedn}
+changetype: modify
+${mode}: memberUid
+memberUid: ${member_uid}
+EOF
+)
+
+usage_exit() {
+    echo "Usage: ${cmd} [-a user] [-d user] group" 1>&2
+    exit 1
+}
+
+operation_err_exit() {
+    echo "${cmd}: You should specify an option '-a' or '-d'." 1>&2
+    exit 1
+}
+
+get_options() {
+    member_uid=''
+    mode=''
+
+    while getopts a:d:h OPT
+    do
+        case $OPT in
+            a)  member_uid=$OPTARG
+                mode=add
+                ;;
+            d)  member_uid=$OPTARG
+                mode=delete
+                ;;
+            h)  usage_exit
+                ;;
+            \?) usage_exit
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    cn=$1
+    [ -z "$cn" ] && usage_exit
+    [ -z "$member_uid" ] && operation_err_exit
+}
+
+mod_group() {
+    export cn
+    export member_uid
+    export mode
+    export basedn=$(slapd-basedn)
+
+    echo "$group_mod_ldif_tmpl" | envsubst | ldapmodify -x -D cn=admin,$(slapd-basedn) -w ${SLAPD_PASSWORD}
+}
+
+get_options "$@"
+mod_group
+exit 0

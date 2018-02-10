@@ -1,0 +1,96 @@
+#!/bin/bash
+
+cmd=$(basename $0)
+
+user_mod_ldif_tmpl=$(cat << 'EOF'
+dn: uid=${uid},ou=Users,${basedn}
+changetype: modify
+${mode}: sshPublicKey
+sshPublicKey: ${key}
+EOF
+)
+
+usage_exit() {
+    echo "Usage: ${cmd} [-A] [-a user] [-D] [-d user] ssh-public-key" 1>&2
+    exit 1
+}
+
+password_auth_err_exit() {
+    echo "${cmd}: Authentication token manipulation error"
+    echo "${cmd}: password unchanged"
+    exit 1
+}
+
+permission_err_exit() {
+    echo "${cmd}: You may not modify ssh-public-key information for ${uid}."
+    exit 1
+}
+
+connection_err_exit() {
+    echo "${cmd}: LDAP internal error"
+    echo "${cmd}: ssh-public-key unchanged"
+    exit 1
+}
+
+get_options() {
+    uid=''
+    mode=''
+
+    while getopts Aa:Dd:h OPT
+    do
+        case $OPT in
+            A)  uid=$(whoami)
+                mode=add
+                ;;
+            a)  uid=$OPTARG
+                mode=add
+                ;;
+            D)  uid=$(whoami)
+                mode=delete
+                ;;
+            d)  uid=$OPTARG
+                mode=delete
+                ;;
+            h)  usage_exit
+                ;;
+            \?) usage_exit
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    key=$1
+    [ -z "$key" ] && usage_exit
+    [ -z "$uid" ] && usage_exit
+}
+
+auth_password() {
+    read -sp "[${cmd}] password for ${uid}: " password
+    tty -s && echo
+    ldapwhoami -x -D uid=${uid},ou=Users,$(slapd-basedn) -w ${password} >/dev/null 2>&1
+    [ $? -ne 0 ] && password_auth_err_exit
+    return 0
+}
+
+check_permission() {
+    user=$(whoami)
+    [ "$user" = "root" ] && return 0
+    [ "$user" = "$uid" ] && auth_password && return 0
+    permission_err_exit
+}
+
+mod_user() {
+    export uid
+    export key
+    export mode
+    export basedn=$(slapd-basedn)
+
+    echo "$user_mod_ldif_tmpl" | envsubst | ldapmodify -x -D cn=admin,$(slapd-basedn) -w ${SLAPD_PASSWORD} >/dev/null 2>&1
+    [ $? -ne 0 ] && connection_err_exit
+    echo "${cmd}: ssh-public-key updated successfully"
+}
+
+get_options "$@"
+check_permission
+mod_user
+exit 0
